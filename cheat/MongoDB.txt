@@ -1,0 +1,22 @@
+
+MacOS
+
+Installation
+
+brew tap mongodb/brew
+brew install mongodb-community@5.0
+
+configuration file
+/usr/local/etc/mongod.conf
+
+data directory
+/usr/local/var/mongodb
+
+run
+brew services start mongodb-community@5.0
+
+stop
+brew services stop mongodb-community@5.0
+
+run on background
+mongod --config /usr/local/etc/mongod.conf --fork
