@@ -40,6 +40,9 @@ git checkout -b new_branch
 
 #switch to existing branch
 git checout branch_to_go
+
+#set upstream branch
+git push --set-upstream origin branch-name
 ```
 
 commits
