@@ -1,7 +1,7 @@
 
-MacOS
-
-Installation
+## Client Installation
+___
+### 1. MacOS
 
 brew tap mongodb/brew
 brew install mongodb-community@5.0
@@ -12,11 +12,18 @@ configuration file
 data directory
 /usr/local/var/mongodb
 
-run
+To run service 
 brew services start mongodb-community@5.0
 
-stop
+To stop
 brew services stop mongodb-community@5.0
 
-run on background
+To run on background
 mongod --config /usr/local/etc/mongod.conf --fork
+
+___
+### 2. Linux
+
+
+
+## Querying

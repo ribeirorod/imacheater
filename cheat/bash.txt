@@ -1,0 +1,21 @@
+Shebang!
+#!/bin/bash
+echo $BASH_VERSION
+
+
+
+MacOS zsh to bash and back
+    chsh -s /bin/bash
+    bash --version
+    brew install bash
+    chsh -s /usr/local/bin/bash
+
+    chsh -s /bin/zsh
+    cat /etc/shells
+
+
+
+curl localhost:5000/auth/login -d '{"identity": "rodtest", "password":"12345"}' -H 'Content-Type: application/json'
+
+latest 
+curl -fsSL https://deb.nodesource.com/setup_14.x | sudo -E bash -
