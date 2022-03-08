@@ -29,7 +29,8 @@ ssh-keygen -t rsa -b 4096 -C 'your@email.com' -f ~/.ssh/github/id_rsa -q -N ''
  #-q - silence ssh-keygen; -N '' - empty (without) passphrase, you can assign one if you want
 ```
 
-4. Copy the content of the file id_rsa.pub, use the following command to output it:
+4. Copy the content of the file id_rsa.pub, use the following command to output it:npm run
+
 ```
 cat ~/.ssh/github/id_rsa.pub
 ```
