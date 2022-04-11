@@ -23,22 +23,18 @@ CASE is faster than JOINS
 
 ### CTEs
 ```sql
-
 ```
 
 ### GROUPING
 ```sql
-
 ```
 
 ### SUBQUERIES
 ```sql
-
 ```
 
 ### DIFFEREN CASE USES
 ```sql
-
 ```
 
 ### JOINS (IF you cant fit CASE)

@@ -59,3 +59,18 @@ driver.close()
 #context manager approach to webdriver
 # with webdriver.Chrome(executable_path=PATH) as driver:
 #     driver.get(url)
+
+# class WebDriver:
+#     def __init__(self, driver):
+#         self.driver = driver
+
+#     def __enter__(self):
+#         return self.driver
+
+#     def __exit__(self, exc_type, exc_val, exc_tb):
+#         self.driver.quit()
+
+
+# with WebDriver(webdriver.Chrome()) as wd:
+#     wd.get('https://stackoverflow.com/questions/')
+#     print(wd.page_source)
