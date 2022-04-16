@@ -2,6 +2,7 @@
 
 import os
 import logging
+from typing import Optional, Union
 import pandas as pd
 from snowflake.sqlalchemy import URL
 from sqlalchemy import create_engine
@@ -53,11 +54,17 @@ class SnowflakerConnector:
     def connect(self):
         return self.engine.connect()
 
-
 # Snowflake UPloader class
 class SnowflakerUploader(SnowflakerConnector):
+
+    """ 
+    Uploads a Pandas dataframe or file into a new or existing Snowflake table.
+    If Create is set to True, the table will be created if not exists and it will be replaced if it exists.
+    If the table exists, and Truncate = True it will be truncated.
+    Currently CSV, Excel or JSON formats are supported 
+    """
     def __init__(self,*
-                ,df
+                ,input : Union[pd.DataFrame, str]
                 ,table_name
                 ,create=False
                 ,truncate=True
@@ -65,7 +72,12 @@ class SnowflakerUploader(SnowflakerConnector):
                 ,sep=','
                 , **kwargs):
         super().__init__(**kwargs)
-        self.df = df
+
+        if isinstance(input, pd.DataFrame):
+            self.df = df
+        elif isinstance(input, str):
+            self.file_name = input
+
         self.table_name = table_name
         self.create = create
         self.truncate = truncate
@@ -76,7 +88,9 @@ class SnowflakerUploader(SnowflakerConnector):
 
         self.file_name = f'{self.table_name}.{self.format}'
         self.file_path = os.path.join(os.path.dirname(__file__),'data', self.file_name)
-        self.df.to_csv(self.file_path, sep=self.sep, index=False)
+
+        if self.df:
+            self.df.to_csv(self.file_path, sep=self.sep, index=False)
 
         with self.connect as con:
             try:
