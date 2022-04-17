@@ -5,6 +5,7 @@ from selenium import webdriver
 
 # keys module from the library that helps send keys to the web page: enter key, some text, etc.
 # from selenium.webdriver.common.keys import keys
+
 from selenium.webdriver.common.by import By
 
 domain = 'http://amazon.de/'
