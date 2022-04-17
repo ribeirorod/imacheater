@@ -5,10 +5,10 @@ import requests
 import os 
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-domain = 'http://amazon.de/'
-product = 'B089HGT839'
+DOMAIN = 'http://amazon.de/'
+PRODUCT = 'B089HGT839'
 
-url = os.path.join(domain,'dp', product)
+url = os.path.join(DOMAIN,'dp', PRODUCT)
 res = requests.get(url, headers=HEADERS, allow_redirects=True)
 
 # html.parser is used for parsing HTML documents. 
@@ -71,7 +71,6 @@ class BasicQuerySelector:
         self.preview= preview
 
 
-    def selelctor ()-> Query:
 
-
-#declare input fields as optional:
+#def selelctor ()-> Query:
+#declare input fields as optional
