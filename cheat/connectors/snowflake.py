@@ -15,8 +15,8 @@ pswd = os.environ['SNOFLK_PASSWORD']
 user = os.environ['SNOFLK_USER']
 acct = os.environ['SNOFLK_ACCOUNT']
 
-db = 'RAW_MERGE_DEV'
-wh = 'DATON_WAREHOUSE'
+db = os.environ['SNOFLK_DATABASE']
+wh = os.environ['SNOFLK_WAREHOUSE']
 sh = 'PUBLIC'
 
 # Snowflake connector class
@@ -92,6 +92,7 @@ class SnowflakerUploader(SnowflakerConnector):
         elif isinstance(self.input, str):
             self.file_path = self.input
             self.format = self.input.split('.')[-1]
+            self.file_name = os.path.basename(self.file_path)
             
 
     def _write(self):
@@ -102,6 +103,8 @@ class SnowflakerUploader(SnowflakerConnector):
         
 
     def _stage(self, con):
+        # Create stage and format
+        con.execute("alter session set timezone='UTC';")
         # Create file format for upload
         con.execute(f""" create or replace file format my{self.format}format
                         type = {self.format}
@@ -112,7 +115,7 @@ class SnowflakerUploader(SnowflakerConnector):
                         file_format = my{self.format}format; """)
         
         # Stage file
-        con.execute(f"put file://{self.file_path} @my_{self.format}_stage")
+        con.execute(f"put file://{self.file_path}.gz @my_{self.format}_stage auto_compress=true overwrite=true;")
 
 
     def upload(self):
@@ -136,10 +139,22 @@ class SnowflakerUploader(SnowflakerConnector):
 
                 # Load file into Snowflake
                 logging.info(f'Loading file into Snowflake...')
-                con.execute(f""" copy into {self.table_name}
-                                from @my_{self.format}_stage
-                                file_format = ( format_name = my{self.format}format )
-                                on_error = 'skip_file; """)
+
+                con.execute(f""" COPY INTO {self.table_name}
+                                 FROM @my_{self.format}_stage/{self.file_name}.gz
+                                 file_format = ( format_name = my{self.format}format )
+                                 on_error = 'skip_file; """)
+
+                # Merge - UPSERT file into database
+                con.execute(f""" 
+                        MERGE INTO {self.table_name}
+						USING (SELECT {','.join([f'$1:{col} as {col}' for col in insert_columns])}
+							FROM @my_{self.format}_stage/{self.file_name}.gz) t
+						ON ({' and '.join([f't.{col} = {self.table_name}.{col}' for col in id_columns])})
+						WHEN MATCHED THEN
+							UPDATE SET {','.join([f'{col}=t.{col}' for col in update_columns])}
+						WHEN NOT MATCHED THEN INSERT ({','.join(insert_columns)})
+						VALUES ({','.join([f't.{col}' for col in insert_columns])});""")
 
                 # ClEAN UP - Drop stage, format and remove file
                 con.execute(f"drop stage my_{self.format}_stage")
