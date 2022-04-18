@@ -31,7 +31,7 @@ class SnowflakerConnector:
                  , role='sysadmin'):
                  
         self.user = user
-        self.password = pswd
+        self.password = password
         self.account = account
         self.db = db
         self.wh = wh
@@ -40,7 +40,7 @@ class SnowflakerConnector:
 
         self.url = URL(
             user=self.user,
-            password=self.pswd,
+            password=self.password,
             account=self.account,
             database=self.db,
             warehouse=self.wh,
@@ -63,6 +63,10 @@ class SnowflakerUploader(SnowflakerConnector):
     If the table exists, and Truncate = True it will be truncated.
     Currently CSV, Excel or JSON formats are supported 
     """
+    read = { 'csv': pd.read_csv
+            , 'json': pd.read_json
+            , 'xlsx': pd.read_excel }
+
     def __init__(self,*
                 ,input : Union[pd.DataFrame, str]
                 ,table_name
@@ -72,25 +76,51 @@ class SnowflakerUploader(SnowflakerConnector):
                 ,sep=','
                 , **kwargs):
         super().__init__(**kwargs)
-
-        if isinstance(input, pd.DataFrame):
-            self.df = df
-        elif isinstance(input, str):
-            self.file_name = input
-
-        self.table_name = table_name
+        self.input = input
+        self.sep = sep
+        self.format = format
         self.create = create
         self.truncate = truncate
-        self.format = format
-        self.sep = sep
-    
-    def upload(self):
+        self.table_name = table_name
 
         self.file_name = f'{self.table_name}.{self.format}'
-        self.file_path = os.path.join(os.path.dirname(__file__),'data', self.file_name)
+        self.file_path = os.path.join(os.path.dirname(__file__),'tmp', self.file_name)
+
+        if isinstance(self.input, pd.DataFrame):
+            self.df = self.input
+            
+        elif isinstance(self.input, str):
+            self.file_path = self.input
+            self.format = self.input.split('.')[-1]
+            
+
+    def _write(self):
+        if self.format == 'csv':
+            self.df.to_csv(self.file_path, sep=self.sep, index=False)
+        elif self.format in ('json'):
+            self.df.to_json(self.file_path,orient='records', lines=True, date_unit='s')
+        
+
+    def _stage(self, con):
+        # Create file format for upload
+        con.execute(f""" create or replace file format my{self.format}format
+                        type = {self.format}
+                        field_delimiter = {self.sep}
+                        skip_header = 1; """)
+        # Create Snowflake stage
+        con.execute(f"""create or replace stage my_{self.format}_stage 
+                        file_format = my{self.format}format; """)
+        
+        # Stage file
+        con.execute(f"put file://{self.file_path} @my_{self.format}_stage")
+
+
+    def upload(self):
 
         if self.df:
-            self.df.to_csv(self.file_path, sep=self.sep, index=False)
+            self._write()
+        elif self.input:
+            self.df = __class__.read[self.format](self.file_path, sep=self.sep , nrows=1)
 
         with self.connect as con:
             try:
@@ -98,19 +128,11 @@ class SnowflakerUploader(SnowflakerConnector):
                     self.df.head(0).to_sql(self.table_name, con, if_exists='replace', index=False)
                 
                 if self.truncate:
+                    logging.info(f"truncating {self.table_name}")
                     con.execute(f'TRUNCATE TABLE {self.table_name}')
                 
-                # Create file format for upload
-                con.execute(f""" create or replace file format my{self.format}format
-                                type = {self.format}
-                                field_delimiter = {self.sep}
-                                skip_header = 1; """)
-                # Create Snowflake stage
-                con.execute(f"""create or replace stage my_{self.format}_stage 
-                                file_format = my{self.format}format; """)
-                
-                # Stage file
-                con.execute(f"put file://{self.file_path} @my_{self.format}_stage")
+                # 
+                self._stage(con)
 
                 # Load file into Snowflake
                 logging.info(f'Loading file into Snowflake...')
@@ -132,22 +154,21 @@ class SnowflakerUploader(SnowflakerConnector):
 
 # Snowflake Query class
 class SnowflakerQuery(SnowflakerConnector):
-    def __init__(self,*,query,output_path, **kwargs):
+    def __init__(self,*,output_path=None, **kwargs):
         super().__init__(**kwargs)
-        self.query = query
         self.output_path = output_path
     
-    def query(self):
+    def query(self, query):
         with self.connect as con:
             try:
-                self.df = pd.read_sql(self.query, con)
+                self.df = pd.read_sql( query, con ) 
             except Exception as e:
                 con.execute('ROLLBACK')
                 logging.error(e)
             finally:
                 con.close()
 
-        if self.output_dir:
+        if self.output_path:
             self.df.to_csv(self.output_path, index=False)
             return None
         else:
@@ -155,5 +176,5 @@ class SnowflakerQuery(SnowflakerConnector):
 
 # Snowflake Main abstract class
 class Snowflaker(SnowflakerUploader, SnowflakerQuery):
-    def __init__(self,*,**kwargs):
+    def __init__(self, *, **kwargs):
         super().__init__(**kwargs)
