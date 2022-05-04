@@ -21,6 +21,7 @@ sh = 'PUBLIC'
 
 # Snowflake connector class
 class SnowflakerConnector:
+    
     def __init__(self
                  , user=user 
                  , password=pswd
@@ -31,21 +32,21 @@ class SnowflakerConnector:
                  , role='sysadmin'):
                  
         self.user = user
-        self.password = password
+        __password = password
         self.account = account
         self.db = db
-        self.wh = wh
-        self.sh = sh
+        self._wh = wh
+        self._sh = sh
         self.role = role
 
         self.url = URL(
             user=self.user,
-            password=self.password,
+            password=__password,
             account=self.account,
             database=self.db,
-            warehouse=self.wh,
+            warehouse=self._wh,
             role=self.role,
-            schema=self.sh
+            schema=self._sh
         )
 
         self.engine = create_engine(self.url)
@@ -54,6 +55,27 @@ class SnowflakerConnector:
     def connect(self):
         return self.engine.connect()
 
+    @property
+    def sh( self):
+        return self._sh
+    
+    @sh.setter
+    def sh(self, value):
+        with self.engine.begin() as conn:
+            conn.execute('USE SCHEMA {}'.format(value))
+        self._sh=value
+
+    @property
+    def wh (self):
+        return self._wh
+    
+    @wh.setter
+    def wh(self, value):
+        with self.engine.begin() as conn:
+            conn.execute('USE WAREHOUSE {}'.format(value))
+        self._wh=value
+            
+
 # Snowflake UPloader class
 class SnowflakerUploader(SnowflakerConnector):
 
@@ -61,7 +83,7 @@ class SnowflakerUploader(SnowflakerConnector):
     Uploads a Pandas dataframe or file into a new or existing Snowflake table.
     If Create is set to True, the table will be created if not exists and it will be replaced if it exists.
     If the table exists, and Truncate = True it will be truncated.
-    Currently CSV, Excel or JSON formats are supported 
+    Currently CSV, JSON formats are supported 
     """
     read = { 'csv': pd.read_csv
             , 'json': pd.read_json
@@ -88,21 +110,32 @@ class SnowflakerUploader(SnowflakerConnector):
 
         if isinstance(self.input, pd.DataFrame):
             self.df = self.input
+            self.format = 'json'
             
         elif isinstance(self.input, str):
             self.file_path = self.input
             self.format = self.input.split('.')[-1]
             self.file_name = os.path.basename(self.file_path)
             
+    def _load(self):
+    
+        if self.df:
+            if self.format == 'csv':
+                self.df.to_csv(self.file_path, sep=self.sep, index=False)
+            elif self.format in ('json'):
+                self.df.to_json(self.file_path,orient='records', lines=True, date_unit='s')
+           
 
-    def _write(self):
-        if self.format == 'csv':
-            self.df.to_csv(self.file_path, sep=self.sep, index=False)
-        elif self.format in ('json'):
-            self.df.to_json(self.file_path,orient='records', lines=True, date_unit='s')
-        
+        with self.connect as con:
+            if self.create:
+                self.df.head(0).to_sql(self.table_name, con, if_exists='replace', index=False)
+            
+            if self.truncate:
+                logging.info(f"truncating {self.table_name}")
+                con.execute(f'TRUNCATE TABLE {self.table_name}')       
 
     def _stage(self, con):
+        self._load()
         # Create stage and format
         con.execute("alter session set timezone='UTC';")
         # Create file format for upload
@@ -117,55 +150,54 @@ class SnowflakerUploader(SnowflakerConnector):
         # Stage file
         con.execute(f"put file://{self.file_path}.gz @my_{self.format}_stage auto_compress=true overwrite=true;")
 
-
-    def upload(self):
-
-        if self.df:
-            self._write()
-        elif self.input:
-            self.df = __class__.read[self.format](self.file_path, sep=self.sep , nrows=1)
-
+    def insert(self):
+        
         with self.connect as con:
+            self._stage(con)
             try:
-                if self.create:
-                    self.df.head(0).to_sql(self.table_name, con, if_exists='replace', index=False)
-                
-                if self.truncate:
-                    logging.info(f"truncating {self.table_name}")
-                    con.execute(f'TRUNCATE TABLE {self.table_name}')
-                
-                # 
-                self._stage(con)
-
-                # Load file into Snowflake
+                # Insert file into Snowflake destination table
                 logging.info(f'Loading file into Snowflake...')
 
                 con.execute(f""" COPY INTO {self.table_name}
-                                 FROM @my_{self.format}_stage/{self.file_name}.gz
-                                 file_format = ( format_name = my{self.format}format )
-                                 on_error = 'skip_file; """)
-
-                # Merge - UPSERT file into database
-                con.execute(f""" 
-                        MERGE INTO {self.table_name}
-						USING (SELECT {','.join([f'$1:{col} as {col}' for col in insert_columns])}
-							FROM @my_{self.format}_stage/{self.file_name}.gz) t
-						ON ({' and '.join([f't.{col} = {self.table_name}.{col}' for col in id_columns])})
-						WHEN MATCHED THEN
-							UPDATE SET {','.join([f'{col}=t.{col}' for col in update_columns])}
-						WHEN NOT MATCHED THEN INSERT ({','.join(insert_columns)})
-						VALUES ({','.join([f't.{col}' for col in insert_columns])});""")
-
-                # ClEAN UP - Drop stage, format and remove file
-                con.execute(f"drop stage my_{self.format}_stage")
-                con.execute(f"drop file format my{self.format}format")
-                os.remove(self.file_path)
-
+                                FROM @my_{self.format}_stage/{self.file_name}.gz
+                                file_format = ( format_name = my{self.format}format )
+                                on_error = 'skip_file; """)
             except Exception as e:
                 con.execute('ROLLBACK')
                 logging.error(e)
             finally:
                 con.close()
+
+    def upsert(self):
+        # Merge - UPSERT file into database
+        insert_columns = ','.join(self.df.columns)
+        id_columns = ','.join(self.df.columns.difference(['id']))
+        update_columns = ','.join(self.df.columns.difference(['id']))
+
+        with self.connect as con:
+            self._stage(con)
+            try:
+                con.execute(f""" 
+                    MERGE INTO {self.table_name}
+                    USING (SELECT {','.join([f'$1:{col} as {col}' for col in insert_columns])}
+                        FROM @my_{self.format}_stage/{self.file_name}.gz) t
+                    ON ({' and '.join([f't.{col} = {self.table_name}.{col}' for col in id_columns])})
+                    WHEN MATCHED THEN
+                        UPDATE SET {','.join([f'{col}=t.{col}' for col in update_columns])}
+                    WHEN NOT MATCHED THEN INSERT ({','.join(insert_columns)})
+                    VALUES ({','.join([f't.{col}' for col in insert_columns])});""")
+            except Exception as e:
+                con.execute('ROLLBACK')
+                logging.error(e)
+            finally:
+                con.close()
+
+    def cleanup(self, con):
+        # ClEAN UP - Drop stage, format and remove file
+        con.execute(f"remove @my_{self.format}_stage/{self.file_name}.gz;")
+        con.execute(f"drop stage my_{self.format}_stage")
+        os.remove(self.file_path)
+
 
 # Snowflake Query class
 class SnowflakerQuery(SnowflakerConnector):
