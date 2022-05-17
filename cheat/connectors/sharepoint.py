@@ -1,6 +1,5 @@
 #%%
 import os
-import io
 
 import logging
 import tempfile
@@ -23,9 +22,10 @@ class SharepointConnector:
                 , user=os.environ['SP_CLIENT']
                 , pswd=os.environ['SP_SECRET'] ):
 
-        self.url = url
-        self._file_url = file_url
         self.credentials = UserCredential(user,pswd)
+        self.url = url
+        self.file_url = file_url
+        
             
         self.ctx = None
         self.file = None
@@ -48,11 +48,14 @@ class SharepointConnector:
 #%%
 class SharepointDownloader(SharepointConnector):
 
-    def __init__(self,*, output_dir:str=None, to_pd=False, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.output_dir = output_dir if output_dir else tempfile.gettempdir()
-        self.to_pd = to_pd
-        self.download_path =  os.path.join(self.output_dir, os.path.basename(self.file_url))
+
+        self.file_dir = os.path.join(os.getcwd(), "tmp/data/sharepoint_transfer/")
+        self.file_path =  os.path.join(self.file_dir, os.path.basename(self.file_url))
+
+        if not os.path.exists(self.file_dir):
+            os.makedirs(self.file_dir)
 
     @property
     def f_extension (self):
@@ -68,71 +71,51 @@ class SharepointDownloader(SharepointConnector):
 
     @property
     def download(self):
-        self.connect()
+        self.connect
         try:
-            with open(self.download_path, 'wb') as f:
+            with open(self.file_path, 'wb') as f:
                 self.file = self.ctx.web.get_file_by_server_relative_path(self._file_url).download(f).execute_query()
-            logging.info(f"File successfully downloaded at: {self.download_path}")
+            logging.info(f"File successfully downloaded at: {self.file_path}")
 
         except Exception as e:
             logging.error(f"Error downloading file: {e}")
-    
-    def to_df(self, sheet='data'):
+        
+    @property
+    def df(self):
+        # check if file exists
+        self.download if not os.path.exists(self.file_path) else None
 
-        self.connect()
-        self.download if not os.path.exists(self.download_path) else None
-        if self.f_extension == 'xls':
-            return pd.read_excel(self.download_path, sheet_name=sheet)
-            # bytes_file_obj = io.BytesIO()
-            # self.file = self.ctx.web.get_file_by_server_relative_path(self.file_url).download(bytes_file_obj).execute_query()
-        else:
-            return pd.read_csv(self.download_path)
-    
+        info = pd.read_excel(self.file_path, sheet_name='auto_info')
+        info.columns = info.columns.str.lower()
+        insert_columns = info['columns']
+        table = info['table'].iloc[0]
+
+        csv_path = os.path.join( self.file_dir, table + ".csv")
+
+        #Remove old csv file if exists 
+        if os.path.exists(csv_path):
+            os.remove(csv_path)
+
+        args = { 
+         'database' : info['database'].iloc[0]
+        ,'schema' : info['schema'].iloc[0]
+        ,'table' : info['table'].iloc[0]
+        ,'method' : info['method'].iloc[0]
+        ,'schedule' : info['schedule'].iloc[0]
+        ,'owner' : info['owner'].iloc[0]
+       # ,'id_columns' :  info['columns'].where(info['id'].notnull())
+        }
+
+        df =  pd.read_excel(self.file_path, sheet_name='data', usecols=insert_columns)
+        df.to_csv(csv_path, sep = ',' , index=False)
+
+        logging.info("Tempory file created: " + csv_path)      
+
+        return args , df
+
+    @property
     def cleanup(self):
         # Cleanup file if it exists
-        if os.path.exists(self.download_path):
-            os.remove(self.download_path)
-
-
-#%%
-
-site_url = "https://sellerx.sharepoint.com/sites/Operations/"
-file_url = "/sites/Operations/Shared Documents/General/Sellerboard-Profitloss/landedcogs.xlsx"
-
-sp= SharepointDownloader(url= site_url, file_url=file_url)
-output_file = sp.download
-df = sp.to_df()
-#sp.cleanup()
-
-#%%
-
-
-
-# FILEPATH = os.path.join(PATH, FILE)
-# xlsFile = pd.read_excel(FILEPATH, sheet_name=None)
-# del xlsFile['Methodology']
-
-# def validate_columns(df, names=NAMES):
-#     """Select rearrange and rename columns to be used"""
-#     selected = []
-#     for col in df.columns:
-#         for name in names:
-#             if re.search(name, col, re.IGNORECASE) is not None:
-#                 df.rename(columns={col:name}, inplace=True, index=str)
-#                 selected.append(name)
-#     return df[selected]
-    
-    
-# def append_sheets(dfs):
-#     """Append sheets to a single dataframe"""
-#     df = pd.DataFrame()
-#     for name, sheet in dfs.items():
-#         print('processing sheet:'+ name, type(sheet))
-#         sheet = validate_columns(sheet)
-#         sheet['source'] = name
-#         df = df.append(sheet, ignore_index=True)
-#     return df
-
-
-    
-# all=append_sheets(xlsFile)
+        if os.path.exists(self.file_path):
+            os.remove(self.file_path)
+# %%
