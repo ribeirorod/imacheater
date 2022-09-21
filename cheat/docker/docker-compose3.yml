@@ -1,0 +1,25 @@
+version: '3'
+services:
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - 6379:6379
+    volumes:
+      - /data/redis:/data
+  db:
+    image: postgres:13
+    container_name: db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - /data/db:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+  worker:
+    image: worker-app
+    container_name: worker-app
+
+  
